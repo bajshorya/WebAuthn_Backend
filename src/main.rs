@@ -1,5 +1,5 @@
 use crate::auth::{finish_authentication, finish_register, start_authentication, start_register};
-use crate::startup::AppState;
+use crate::startup::{AppState, DATABASE_URL};
 use axum::{
     Router,
     extract::Extension,
@@ -21,6 +21,7 @@ use tower_sessions::{
 extern crate tracing;
 
 mod auth;
+mod db;
 mod error;
 mod startup;
 
@@ -39,8 +40,20 @@ async fn main() {
     // initialize tracing
     tracing_subscriber::fmt::init();
 
+    // Initialize database
+    let db_pool = match db::init_db(DATABASE_URL).await {
+        Ok(pool) => {
+            info!("Database initialized successfully");
+            pool
+        }
+        Err(e) => {
+            error!("Failed to initialize database: {:?}", e);
+            panic!("Database initialization failed");
+        }
+    };
+
     // Create the app
-    let app_state = AppState::new();
+    let app_state = AppState::new(db_pool).await;
 
     let session_store = MemoryStore::default();
 

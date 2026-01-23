@@ -1,4 +1,5 @@
 use crate::auth::{finish_authentication, finish_register, start_authentication, start_register};
+use crate::polls::{close_poll, create_poll, get_poll, list_polls, vote_on_poll};
 use crate::startup::{AppState, DATABASE_URL};
 use axum::{
     Router,
@@ -16,16 +17,13 @@ use tower_sessions::{
     Expiry, MemoryStore, SessionManagerLayer,
     cookie::{SameSite, time::Duration},
 };
-
-#[macro_use]
-extern crate tracing;
+use tracing::{error, info};
 
 mod auth;
 mod db;
 mod error;
+mod polls;
 mod startup;
-
-// Add this function
 async fn test_page() -> Html<&'static str> {
     Html(include_str!("../webauthn_test.html"))
 }
@@ -37,10 +35,8 @@ async fn main() {
             std::env::set_var("RUST_LOG", "INFO");
         }
     }
-    // initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Initialize database
     let db_pool = match db::init_db(DATABASE_URL).await {
         Ok(pool) => {
             info!("Database initialized successfully");
@@ -52,18 +48,22 @@ async fn main() {
         }
     };
 
-    // Create the app
     let app_state = AppState::new(db_pool).await;
 
     let session_store = MemoryStore::default();
 
-    // build our application with a route
     let app = Router::new()
         .route("/", get(test_page)) // Serve HTML at root
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
+        // Polling routes
+        .route("/polls", post(create_poll))
+        .route("/polls", get(list_polls))
+        .route("/polls/:poll_id", get(get_poll))
+        .route("/polls/:poll_id/vote", post(vote_on_poll))
+        .route("/polls/:poll_id/close", post(close_poll))
         .layer(Extension(app_state))
         .layer(
             CorsLayer::new()
@@ -80,13 +80,11 @@ async fn main() {
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::Lax)
-                .with_secure(false) // TODO: change this to true when running on an HTTPS/production server instead of locally
+                .with_secure(false)
                 .with_expiry(Expiry::OnInactivity(Duration::seconds(360))),
         )
         .fallback(handler_404);
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     info!("listening on {addr}");
 

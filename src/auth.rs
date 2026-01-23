@@ -181,13 +181,20 @@ pub async fn finish_authentication(
                 return Err(WebauthnError::Unknown);
             }
 
+            // Store user_id in session for polling operations
+            if let Err(e) = session.insert("user_id", user_unique_id).await {
+                error!("Error storing user_id in session: {:?}", e);
+                return Err(WebauthnError::Unknown);
+            }
+
             info!("Authentication Successful!");
 
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({
                     "status": "success",
-                    "message": "Authentication successful"
+                    "message": "Authentication successful",
+                    "user_id": user_unique_id
                 })),
             )
         }

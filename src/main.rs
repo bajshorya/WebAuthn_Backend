@@ -13,10 +13,9 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_sessions::{
-    Expiry, MemoryStore, SessionManagerLayer,
-    cookie::{SameSite, time::Duration},
-};
+use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use tower_sessions::cookie::time::Duration;
+use tower_sessions::cookie::SameSite;
 use tracing::{error, info};
 
 mod auth;
@@ -24,6 +23,7 @@ mod db;
 mod error;
 mod polls;
 mod startup;
+
 async fn test_page() -> Html<&'static str> {
     Html(include_str!("../webauthn_test.html"))
 }
@@ -50,10 +50,14 @@ async fn main() {
 
     let app_state = AppState::new(db_pool).await;
 
+    // Use MemoryStore for sessions
     let session_store = MemoryStore::default();
+    
+    // In tower-sessions 0.12, cookies are automatically signed
+    // No need for explicit Key generation
 
     let app = Router::new()
-        .route("/", get(test_page)) // Serve HTML at root
+        .route("/", get(test_page))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
@@ -80,7 +84,7 @@ async fn main() {
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::Lax)
-                .with_secure(false)
+                .with_secure(false) // TODO: change this to true when running on an HTTPS/production server instead of locally
                 .with_expiry(Expiry::OnInactivity(Duration::seconds(360))),
         )
         .fallback(handler_404);

@@ -43,6 +43,7 @@ pub struct PollResponse {
     pub closed: bool,
     pub options: Vec<PollOptionWithVotesResponse>,
     pub user_voted: bool,
+    pub current_user_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,6 +62,14 @@ pub struct CastVoteRequest {
 pub struct VoteResponse {
     pub success: bool,
     pub message: String,
+}
+
+async fn require_auth(session: &Session) -> Result<Uuid, PollError> {
+    session
+        .get::<Uuid>("user_id")
+        .await
+        .map_err(|_| PollError::Unauthorized)?
+        .ok_or(PollError::Unauthorized)
 }
 
 // Helper function to extract user_id from session
@@ -128,8 +137,7 @@ pub async fn list_polls(
     Extension(app_state): Extension<AppState>,
     session: Session,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = get_user_id_from_session(&session).await.ok();
-
+    let user_id = require_auth(&session).await?;
     let polls = db::get_all_polls(&app_state.db)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?;
@@ -141,14 +149,9 @@ pub async fn list_polls(
             .await
             .map_err(|e| PollError::DatabaseError(e.to_string()))?;
 
-        let user_voted = if let Some(uid) = user_id {
-            db::user_has_voted(&app_state.db, poll.id, uid)
-                .await
-                .unwrap_or(false)
-        } else {
-            false
-        };
-
+        let user_voted = db::user_has_voted(&app_state.db, poll.id, user_id)
+            .await
+            .unwrap_or(false);
         let option_responses = options
             .into_iter()
             .map(|opt| PollOptionWithVotesResponse {
@@ -167,6 +170,7 @@ pub async fn list_polls(
             closed: poll.closed,
             options: option_responses,
             user_voted,
+            current_user_id: Some(user_id),
         });
     }
 
@@ -179,8 +183,7 @@ pub async fn get_poll(
     session: Session,
     Path(poll_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = get_user_id_from_session(&session).await.ok();
-
+    let user_id = require_auth(&session).await?;
     let poll = db::get_poll(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?
@@ -190,13 +193,9 @@ pub async fn get_poll(
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?;
 
-    let user_voted = if let Some(uid) = user_id {
-        db::user_has_voted(&app_state.db, poll_id, uid)
-            .await
-            .unwrap_or(false)
-    } else {
-        false
-    };
+    let user_voted = db::user_has_voted(&app_state.db, poll_id, user_id)
+        .await
+        .unwrap_or(false);
 
     let option_responses = options
         .into_iter()
@@ -216,6 +215,7 @@ pub async fn get_poll(
         closed: poll.closed,
         options: option_responses,
         user_voted,
+        current_user_id: Some(user_id),
     };
 
     Ok((StatusCode::OK, Json(response)))
@@ -229,7 +229,7 @@ pub async fn vote_on_poll(
     Json(payload): Json<CastVoteRequest>,
 ) -> Result<impl IntoResponse, PollError> {
     // Verify user is authenticated
-    let user_id = get_user_id_from_session(&session).await?;
+    let user_id = require_auth(&session).await?;
 
     // Verify poll exists and is not closed
     let poll = db::get_poll(&app_state.db, poll_id)
@@ -272,7 +272,7 @@ pub async fn close_poll(
     Path(poll_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, PollError> {
     // Verify user is authenticated
-    let user_id = get_user_id_from_session(&session).await?;
+    let user_id = require_auth(&session).await?;
 
     // Verify poll exists
     let poll = db::get_poll(&app_state.db, poll_id)

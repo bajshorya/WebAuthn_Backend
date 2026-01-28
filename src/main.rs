@@ -9,13 +9,15 @@ use axum::{
         StatusCode,
         header::{ACCEPT, CONTENT_TYPE},
     },
-    response::{Html, IntoResponse},
+    response::IntoResponse,
     routing::{get, post},
 };
 use std::net::SocketAddr;
+use std::time::Duration;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::timeout::TimeoutLayer;
 use tower_sessions::cookie::SameSite;
-use tower_sessions::cookie::time::Duration;
+use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 use tracing::{error, info};
 
@@ -25,9 +27,6 @@ mod error;
 mod polls;
 mod sse;
 mod startup;
-async fn test_page() -> Html<&'static str> {
-    Html(include_str!("../webauthn_test.html"))
-}
 
 #[tokio::main]
 async fn main() {
@@ -55,11 +54,11 @@ async fn main() {
     let sse_tx = create_sse_broadcaster();
 
     let app = Router::new()
-        .route("/", get(test_page))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
+        .route("/debug/db-stats", get(debug_db_stats))
         .route("/polls", post(create_poll))
         .route("/polls", get(list_polls))
         .route("/polls/:poll_id", get(get_poll))
@@ -67,8 +66,9 @@ async fn main() {
         .route("/polls/:poll_id/close", post(close_poll))
         .route("/polls/:poll_id/sse", get(poll_updates_sse))
         .route("/polls/sse", get(all_polls_sse))
+        .layer(TimeoutLayer::new(Duration::from_secs(30)))
         .layer(Extension(app_state))
-        .layer(Extension(sse_tx)) 
+        .layer(Extension(sse_tx))
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::mirror_request())
@@ -84,9 +84,9 @@ async fn main() {
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::Lax)
-                .with_secure(false) 
-                .with_expiry(Expiry::OnInactivity(Duration::days(7))) 
-                .with_http_only(true), 
+                .with_secure(false)
+                .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
+                .with_http_only(true),
         );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -101,4 +101,10 @@ async fn main() {
 
 async fn handler_404() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "nothing to see here")
+}
+async fn debug_db_stats(Extension(app_state): Extension<AppState>) -> impl IntoResponse {
+    match db::get_pool_stats(&app_state.db).await {
+        Ok(stats) => (StatusCode::OK, stats),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)),
+    }
 }

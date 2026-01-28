@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -37,7 +39,9 @@ pub struct Vote {
 
 pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(20)
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .idle_timeout(Duration::from_secs(10 * 60))
         .connect(database_url)
         .await?;
 
@@ -287,7 +291,18 @@ pub async fn get_all_polls(pool: &DbPool) -> Result<Vec<Poll>, sqlx::Error> {
 
     Ok(rows)
 }
+pub async fn get_pool_stats(pool: &DbPool) -> Result<String, sqlx::Error> {
+    let size = pool.size() as usize;
+    let num_idle = pool.num_idle();
+    let connections = pool.acquire().await;
 
+    Ok(format!(
+        "Pool stats: size={}, idle={}, available={}",
+        size,
+        num_idle,
+        size - num_idle
+    ))
+}
 pub async fn get_poll_options(
     pool: &DbPool,
     poll_id: Uuid,

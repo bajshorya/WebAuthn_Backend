@@ -30,7 +30,7 @@ pub enum SseEvent {
     PollClosed(Uuid),
 }
 
-pub type SseSender = tokio::sync::broadcast::Sender<SseEvent>; 
+pub type SseSender = tokio::sync::broadcast::Sender<SseEvent>;
 
 pub fn create_sse_broadcaster() -> SseSender {
     tokio::sync::broadcast::channel(100).0
@@ -110,7 +110,6 @@ pub async fn poll_updates_sse(
             .text("keep-alive"),
     )
 }
-
 pub async fn all_polls_sse(
     Extension(app_state): Extension<AppState>,
     Extension(sse_tx): Extension<SseSender>,
@@ -118,57 +117,64 @@ pub async fn all_polls_sse(
     let mut rx = sse_tx.subscribe();
 
     let stream = async_stream::stream! {
-        match db::get_all_polls(&app_state.db).await {
-            Ok(polls) => {
-                let mut polls_with_details = Vec::new();
+        {
+            let polls_result = db::get_all_polls(&app_state.db).await;
+            match polls_result {
+                Ok(polls) => {
+                    let mut polls_with_details = Vec::new();
 
-                for poll in polls {
-                    match db::get_poll_options(&app_state.db, poll.id).await {
-                        Ok(options) => {
-                            let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
-                            polls_with_details.push(json!({
-                                "id": poll.id,
-                                "title": poll.title,
-                                "description": poll.description,
-                                "creator_id": poll.creator_id,
-                                "created_at": poll.created_at,
-                                "closed": poll.closed,
-                                "options": options,
-                                "total_votes": total_votes,
-                            }));
-                        }
-                        Err(_) => {
-                            polls_with_details.push(json!({
-                                "id": poll.id,
-                                "title": poll.title,
-                                "description": poll.description,
-                                "creator_id": poll.creator_id,
-                                "created_at": poll.created_at,
-                                "closed": poll.closed,
-                                "options": [],
-                                "total_votes": 0,
-                            }));
+                    for poll in polls {
+                        let options_result = db::get_poll_options(&app_state.db, poll.id).await;
+                        match options_result {
+                            Ok(options) => {
+                                let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                                polls_with_details.push(json!({
+                                    "id": poll.id,
+                                    "title": poll.title,
+                                    "description": poll.description,
+                                    "creator_id": poll.creator_id,
+                                    "created_at": poll.created_at,
+                                    "closed": poll.closed,
+                                    "options": options,
+                                    "total_votes": total_votes,
+                                }));
+                            }
+                            Err(_) => {
+                                polls_with_details.push(json!({
+                                    "id": poll.id,
+                                    "title": poll.title,
+                                    "description": poll.description,
+                                    "creator_id": poll.creator_id,
+                                    "created_at": poll.created_at,
+                                    "closed": poll.closed,
+                                    "options": [],
+                                    "total_votes": 0,
+                                }));
+                            }
                         }
                     }
-                }
 
-                yield Ok(Event::default()
-                    .event("init")
-                    .data(json!({"polls": polls_with_details}).to_string()));
-            }
-            Err(_) => {
-                yield Ok(Event::default()
-                    .event("error")
-                    .data(json!({"error": "Failed to load polls"}).to_string()));
+                    yield Ok(Event::default()
+                        .event("init")
+                        .data(json!({"polls": polls_with_details}).to_string()));
+                }
+                Err(_) => {
+                    yield Ok(Event::default()
+                        .event("error")
+                        .data(json!({"error": "Failed to load polls"}).to_string()));
+                }
             }
         }
 
+       
         while let Ok(event) = rx.recv().await {
             match event {
                 SseEvent::PollCreated(poll_created) => {
-                    match db::get_poll(&app_state.db, poll_created.poll_id).await {
+                    let poll_result = db::get_poll(&app_state.db, poll_created.poll_id).await;
+                    match poll_result {
                         Ok(Some(poll)) => {
-                            match db::get_poll_options(&app_state.db, poll_created.poll_id).await {
+                            let options_result = db::get_poll_options(&app_state.db, poll_created.poll_id).await;
+                            match options_result {
                                 Ok(options) => {
                                     let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
                                     yield Ok(Event::default()
@@ -189,6 +195,7 @@ pub async fn all_polls_sse(
                                         }).to_string()));
                                 }
                                 Err(_) => {
+                                
                                     yield Ok(Event::default()
                                         .event("poll_created")
                                         .data(json!({
@@ -208,24 +215,12 @@ pub async fn all_polls_sse(
                                 }
                             }
                         }
-                        Ok(None) => {
-                            yield Ok(Event::default()
-                                .event("error")
-                                .data(json!({"error": "Created poll not found"}).to_string()));
-                        }
-                        Err(_) => {
-                            yield Ok(Event::default()
-                                .event("error")
-                                .data(json!({"error": "Failed to load created poll"}).to_string()));
+                        _ => {
                         }
                     }
                 }
-                SseEvent::PollClosed(poll_id) => {
-                    yield Ok(Event::default()
-                        .event("poll_closed")
-                        .data(json!({"poll_id": poll_id}).to_string()));
-                }
                 SseEvent::VoteUpdate(update) => {
+                
                     match db::get_poll(&app_state.db, update.poll_id).await {
                         Ok(Some(poll)) => {
                             match db::get_poll_options(&app_state.db, update.poll_id).await {
@@ -250,6 +245,7 @@ pub async fn all_polls_sse(
                                         }).to_string()));
                                 }
                                 Err(_) => {
+                                   
                                     yield Ok(Event::default()
                                         .event("poll_updated")
                                         .data(json!({
@@ -271,8 +267,14 @@ pub async fn all_polls_sse(
                             }
                         }
                         _ => {
+                            
                         }
                     }
+                }
+                SseEvent::PollClosed(poll_id) => {
+                    yield Ok(Event::default()
+                        .event("poll_closed")
+                        .data(json!({"poll_id": poll_id}).to_string()));
                 }
             }
         }

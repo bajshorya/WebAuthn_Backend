@@ -1,5 +1,6 @@
 use crate::db;
 use crate::error::PollError;
+use crate::sse::{SseEvent, SseSender};
 use crate::startup::AppState;
 use axum::{
     extract::{Extension, Json, Path},
@@ -10,13 +11,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tower_sessions::Session;
 use uuid::Uuid;
-
-// Request/Response DTOs
 #[derive(Debug, Deserialize)]
 pub struct CreatePollRequest {
     pub title: String,
     pub description: Option<String>,
-    pub options: Vec<String>, // List of poll options
+    pub options: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,7 +71,6 @@ async fn require_auth(session: &Session) -> Result<Uuid, PollError> {
         .ok_or(PollError::Unauthorized)
 }
 
-// Helper function to extract user_id from session
 async fn get_user_id_from_session(session: &Session) -> Result<Uuid, PollError> {
     session
         .get::<Uuid>("user_id")
@@ -81,16 +79,14 @@ async fn get_user_id_from_session(session: &Session) -> Result<Uuid, PollError> 
         .ok_or(PollError::Unauthorized)
 }
 
-/// Create a new poll (authenticated users only)
 pub async fn create_poll(
     Extension(app_state): Extension<AppState>,
+    Extension(sse_tx): Extension<SseSender>,
     session: Session,
     Json(payload): Json<CreatePollRequest>,
 ) -> Result<impl IntoResponse, PollError> {
-    // Verify user is authenticated
     let user_id = get_user_id_from_session(&session).await?;
 
-    // Validate input
     if payload.title.is_empty() || payload.options.is_empty() {
         return Err(PollError::InvalidRequest);
     }
@@ -99,7 +95,6 @@ pub async fn create_poll(
         return Err(PollError::InvalidRequest);
     }
 
-    // Create poll in database
     let poll_id = db::create_poll(
         &app_state.db,
         user_id,
@@ -109,7 +104,6 @@ pub async fn create_poll(
     .await
     .map_err(|e| PollError::DatabaseError(e.to_string()))?;
 
-    // Add poll options
     let mut option_responses = Vec::new();
     for option_text in payload.options {
         let option_id = db::add_poll_option(&app_state.db, poll_id, &option_text)
@@ -122,6 +116,12 @@ pub async fn create_poll(
         });
     }
 
+    let _ = sse_tx.send(SseEvent::PollCreated(crate::sse::PollCreated {
+        poll_id,
+        title: payload.title.clone(),
+        creator_id: user_id,
+    }));
+
     let response = CreatePollResponse {
         poll_id,
         title: payload.title,
@@ -131,8 +131,6 @@ pub async fn create_poll(
 
     Ok((StatusCode::CREATED, Json(response)))
 }
-
-/// Get all polls
 pub async fn list_polls(
     Extension(app_state): Extension<AppState>,
     session: Session,
@@ -177,7 +175,6 @@ pub async fn list_polls(
     Ok((StatusCode::OK, Json(poll_responses)))
 }
 
-/// Get a specific poll with all its options and vote counts
 pub async fn get_poll(
     Extension(app_state): Extension<AppState>,
     session: Session,
@@ -221,17 +218,15 @@ pub async fn get_poll(
     Ok((StatusCode::OK, Json(response)))
 }
 
-/// Cast a vote on a poll option (authenticated users only)
 pub async fn vote_on_poll(
     Extension(app_state): Extension<AppState>,
+    Extension(sse_tx): Extension<SseSender>,
     session: Session,
     Path(poll_id): Path<Uuid>,
     Json(payload): Json<CastVoteRequest>,
 ) -> Result<impl IntoResponse, PollError> {
-    // Verify user is authenticated
     let user_id = require_auth(&session).await?;
 
-    // Verify poll exists and is not closed
     let poll = db::get_poll(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?
@@ -241,7 +236,6 @@ pub async fn vote_on_poll(
         return Err(PollError::PollClosed);
     }
 
-    // Verify option exists and belongs to this poll
     let options = db::get_poll_options(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?;
@@ -251,9 +245,26 @@ pub async fn vote_on_poll(
         return Err(PollError::OptionNotFound);
     }
 
-    // Cast the vote
     match db::cast_vote(&app_state.db, poll_id, payload.option_id, user_id).await {
         Ok(_) => {
+            let updated_options = db::get_poll_options(&app_state.db, poll_id)
+                .await
+                .map_err(|e| PollError::DatabaseError(e.to_string()))?;
+
+            if let Some(updated_option) = updated_options.iter().find(|o| o.id == payload.option_id)
+            {
+                let _ = sse_tx.send(crate::sse::SseEvent::VoteUpdate(crate::sse::PollUpdate {
+                    poll_id,
+                    option_id: payload.option_id,
+                    new_vote_count: updated_option.votes,
+                }));
+
+                println!(
+                    "✅ Broadcasted vote update for poll {} (option {} has {} votes)",
+                    poll_id, payload.option_id, updated_option.votes
+                );
+            }
+
             let response = VoteResponse {
                 success: true,
                 message: "Vote recorded successfully".to_string(),
@@ -264,31 +275,28 @@ pub async fn vote_on_poll(
         Err(e) => Err(PollError::DatabaseError(e.to_string())),
     }
 }
-
-/// Close a poll (only creator can close)
 pub async fn close_poll(
     Extension(app_state): Extension<AppState>,
+    Extension(sse_tx): Extension<SseSender>,
     session: Session,
     Path(poll_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, PollError> {
-    // Verify user is authenticated
     let user_id = require_auth(&session).await?;
 
-    // Verify poll exists
     let poll = db::get_poll(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?
         .ok_or(PollError::PollNotFound)?;
 
-    // Verify user is the creator
     if poll.creator_id != user_id {
         return Err(PollError::Unauthorized);
     }
 
-    // Close the poll
     db::close_poll(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?;
+
+    let _ = sse_tx.send(SseEvent::PollClosed(poll_id));
 
     Ok((
         StatusCode::OK,

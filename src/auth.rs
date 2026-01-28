@@ -71,13 +71,10 @@ pub async fn finish_register(
         .finish_passkey_registration(&reg, &reg_state)
     {
         Ok(sk) => {
-            // Create user in database if it doesn't exist
             if let Err(e) = db::create_user(&app_state.db, user_unique_id, &username).await {
-                // User might already exist, which is fine
                 error!("Error creating user (may already exist): {:?}", e);
             }
 
-            // Add the passkey to database
             if let Err(e) = db::add_passkey(&app_state.db, user_unique_id, &sk).await {
                 error!("Error adding passkey to database: {:?}", e);
                 return Err(WebauthnError::Unknown);
@@ -164,24 +161,20 @@ pub async fn finish_authentication(
         .finish_passkey_authentication(&auth, &auth_state)
     {
         Ok(auth_result) => {
-            // Get current passkeys from database
             let mut passkeys = db::get_user_passkeys(&app_state.db, user_unique_id)
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
-            // Update all passkeys with new authentication data
             passkeys.iter_mut().for_each(|sk| {
                 sk.update_credential(&auth_result);
             });
 
-            // Save updated passkeys to database
             if let Err(e) = db::update_user_passkeys(&app_state.db, user_unique_id, &passkeys).await
             {
                 error!("Error updating passkeys in database: {:?}", e);
                 return Err(WebauthnError::Unknown);
             }
 
-            // Store user_id in session for polling operations
             if let Err(e) = session.insert("user_id", user_unique_id).await {
                 error!("Error storing user_id in session: {:?}", e);
                 return Err(WebauthnError::Unknown);

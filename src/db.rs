@@ -41,7 +41,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
         .connect(database_url)
         .await?;
 
-    // Create users table
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
@@ -54,7 +53,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Create passkeys table to store serialized passkey data
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS passkeys (
@@ -68,7 +66,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Create polls table
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS polls (
@@ -84,7 +81,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Create poll_options table
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS poll_options (
@@ -98,7 +94,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Create votes table (tracks which user voted for which option)
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS votes (
@@ -114,7 +109,6 @@ pub async fn init_db(database_url: &str) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Create indexes
     sqlx::query(
         r#"
         CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)
@@ -194,7 +188,7 @@ pub async fn add_passkey(
 
     sqlx::query("INSERT INTO passkeys (user_id, passkey_data) VALUES ($1, $2)")
         .bind(user_id)
-        .bind(passkey_json) // Now passing as serde_json::Value instead of String
+        .bind(passkey_json)
         .execute(pool)
         .await?;
 
@@ -220,26 +214,22 @@ pub async fn get_user_passkeys(pool: &DbPool, user_id: Uuid) -> Result<Vec<Passk
     Ok(passkeys)
 }
 
-/// Update all passkeys for a user (used after authentication to update counters)
 pub async fn update_user_passkeys(
     pool: &DbPool,
     user_id: Uuid,
     passkeys: &[Passkey],
 ) -> Result<(), sqlx::Error> {
-    // Delete old passkeys
     sqlx::query("DELETE FROM passkeys WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)
         .await?;
 
-    // Insert updated passkeys
     for passkey in passkeys {
         add_passkey(pool, user_id, passkey).await?;
     }
 
     Ok(())
 }
-// ===== POLLING FUNCTIONS =====
 
 pub async fn create_poll(
     pool: &DbPool,
@@ -328,7 +318,6 @@ pub async fn cast_vote(
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    // Check if user already voted on this poll
     let existing_vote = sqlx::query("SELECT id FROM votes WHERE poll_id = $1 AND user_id = $2")
         .bind(poll_id)
         .bind(user_id)
@@ -340,7 +329,6 @@ pub async fn cast_vote(
         return Err(sqlx::Error::RowNotFound);
     }
 
-    // Create vote record
     let vote_id = Uuid::new_v4();
     sqlx::query("INSERT INTO votes (id, poll_id, option_id, user_id) VALUES ($1, $2, $3, $4)")
         .bind(vote_id)
@@ -350,7 +338,6 @@ pub async fn cast_vote(
         .execute(&mut *tx)
         .await?;
 
-    // Increment vote count
     sqlx::query("UPDATE poll_options SET votes = votes + 1 WHERE id = $1")
         .bind(option_id)
         .execute(&mut *tx)

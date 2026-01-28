@@ -2,6 +2,7 @@ use crate::auth::{finish_authentication, finish_register, start_authentication, 
 use crate::polls::{close_poll, create_poll, get_poll, list_polls, vote_on_poll};
 use crate::sse::{all_polls_sse, create_sse_broadcaster, poll_updates_sse};
 use crate::startup::{AppState, DATABASE_URL};
+use axum::Json;
 use axum::{
     Router,
     extract::Extension,
@@ -12,13 +13,14 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use serde_json::json;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
-use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 use tracing::{error, info};
 
 mod auth;
@@ -58,6 +60,7 @@ async fn main() {
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
+        .route("/logout", post(logout))
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/polls", post(create_poll))
         .route("/polls", get(list_polls))
@@ -107,4 +110,11 @@ async fn debug_db_stats(Extension(app_state): Extension<AppState>) -> impl IntoR
         Ok(stats) => (StatusCode::OK, stats),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)),
     }
+}
+async fn logout(session: Session) -> impl IntoResponse {
+    session.clear();
+    Json(json!({
+        "success": true,
+        "message": "Logged out successfully"
+    }))
 }

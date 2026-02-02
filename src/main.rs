@@ -24,12 +24,18 @@ use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 use tracing::{error, info};
 
 mod auth;
-mod db;
 mod error;
 mod polls;
 mod sse;
 mod startup;
+mod db {
+    pub mod connection;
+    pub mod models;
+    pub mod repositories;
 
+    pub use connection::*;
+    pub use repositories::*;
+}
 #[tokio::main]
 async fn main() {
     if std::env::var("RUST_LOG").is_err() {
@@ -69,7 +75,10 @@ async fn main() {
         .route("/polls/:poll_id/close", post(close_poll))
         .route("/polls/:poll_id/sse", get(poll_updates_sse))
         .route("/polls/sse", get(all_polls_sse))
-        .layer(TimeoutLayer::new(Duration::from_secs(30)))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(30),
+        ))
         .layer(Extension(app_state))
         .layer(Extension(sse_tx))
         .layer(
@@ -102,17 +111,20 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+#[allow(dead_code)]
 async fn handler_404() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "nothing to see here")
 }
+
 async fn debug_db_stats(Extension(app_state): Extension<AppState>) -> impl IntoResponse {
     match db::get_pool_stats(&app_state.db).await {
         Ok(stats) => (StatusCode::OK, stats),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)),
     }
 }
+
 async fn logout(session: Session) -> impl IntoResponse {
-    session.clear();
+    session.clear().await;
     Json(json!({
         "success": true,
         "message": "Logged out successfully"

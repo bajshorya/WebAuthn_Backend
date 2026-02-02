@@ -1,7 +1,7 @@
-use crate::db::DbPool;
+use crate::db::connection::DbPool;
 use std::sync::Arc;
 use tokio::time::{Duration, interval};
-use tracing::{error, info};
+use tracing::error;
 use webauthn_rs::prelude::*;
 
 pub const DATABASE_URL: &str = "postgresql://neondb_owner:npg_NWk9HyIjDcK1@ep-hidden-voice-ahhkgfq9-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&channel_binding=require&connect_timeout=10&pool_max_connections=20";
@@ -22,7 +22,7 @@ impl AppState {
 
         let db_clone = db.clone();
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(60)); 
+            let mut interval = interval(Duration::from_secs(60));
             loop {
                 interval.tick().await;
                 match db_clone.acquire().await {

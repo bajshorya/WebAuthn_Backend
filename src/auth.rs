@@ -28,7 +28,12 @@ pub async fn start_register(
     let _ = session.remove_value("reg_state").await;
 
     let exclude_credentials = match db::get_user_passkeys(&app_state.db, user_unique_id).await {
-        Ok(keys) => Some(keys.iter().map(|sk| sk.cred_id().clone()).collect()),
+        Ok(keys) => Some(
+            keys.iter()
+                .map(|sk: &Passkey| sk.cred_id().clone())
+                .collect(),
+        ),
+
         Err(_) => None,
     };
 
@@ -117,10 +122,9 @@ pub async fn start_authentication(
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::UserNotFound)?;
 
-    let allow_credentials = db::get_user_passkeys(&app_state.db, user_unique_id)
+    let allow_credentials: Vec<Passkey> = db::get_user_passkeys(&app_state.db, user_unique_id)
         .await
         .map_err(|_| WebauthnError::Unknown)?;
-
     if allow_credentials.is_empty() {
         return Err(WebauthnError::UserHasNoCredentials);
     }
@@ -165,10 +169,9 @@ pub async fn finish_authentication(
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
-            passkeys.iter_mut().for_each(|sk| {
+            passkeys.iter_mut().for_each(|sk: &mut Passkey| {
                 sk.update_credential(&auth_result);
             });
-
             if let Err(e) = db::update_user_passkeys(&app_state.db, user_unique_id, &passkeys).await
             {
                 error!("Error updating passkeys in database: {:?}", e);

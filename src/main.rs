@@ -86,24 +86,26 @@ async fn main() {
         .layer(Extension(sse_tx))
         .layer(
             CorsLayer::new()
-                .allow_origin(AllowOrigin::exact(
-                    "https://polldance.vercel.app"
-                        .parse()
-                        .expect("Url Expected (of frontend)"),
-                ))
+                .allow_origin(AllowOrigin::list([
+                    "https://polldance.vercel.app".parse().unwrap(),
+                    "http://localhost:3000".parse().unwrap(),
+                    "http://127.0.0.1:3000".parse().unwrap(),
+                ]))
                 .allow_credentials(true)
                 .allow_methods([
                     axum::http::Method::POST,
                     axum::http::Method::GET,
                     axum::http::Method::OPTIONS,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
                 ])
-                .allow_headers([CONTENT_TYPE, ACCEPT]),
+                .allow_headers([CONTENT_TYPE, ACCEPT, axum::http::header::ORIGIN]),
         )
         .layer(
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::Lax)
-                .with_secure(false)
+                .with_secure(std::env::var("RUST_ENV") == Ok("production".to_string()))
                 .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
                 .with_http_only(true),
         );

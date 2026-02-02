@@ -1,2 +1,10 @@
 /target
 .env
+.env.*
+!.env.example
+*.db
+*.sqlite
+.DS_Store
+.vscode/
+.idea/
+*.log

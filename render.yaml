@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: rust-backend
+    env: rust
+    region: oregon
+    branch: main
+    buildCommand: |
+      # Install dependencies first (cached)
+      cargo fetch
+      # Build with optimizations
+      CARGO_PROFILE_RELEASE_LTO=true \
+      CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
+      CARGO_PROFILE_RELEASE_PANIC=abort \
+      cargo build --release
+    startCommand: ./target/release/rust_backend
+    envVars:
+      - key: RUST_LOG
+        value: info
+      - key: DATABASE_URL
+        sync: false
+    healthCheckPath: /debug/db-stats
+    autoDeploy: true
+    disk:
+      name: cargo-cache
+      mountPath: /opt/render/.cargo/registry
+      sizeGB: 1

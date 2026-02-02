@@ -120,7 +120,6 @@ async fn main() {
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::None)
-                .with_domain(".onrender.com")
                 .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
                 .with_http_only(true)

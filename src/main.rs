@@ -39,26 +39,25 @@ mod db {
 }
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
     if std::env::var("RUST_LOG").is_err() {
         unsafe {
             std::env::set_var("RUST_LOG", "INFO");
         }
     }
     tracing_subscriber::fmt::init();
-
-    let db_pool =
-        match db::init_db(&env::var("DATABASE_URL").expect("Database url must be set in env !!"))
-            .await
-        {
-            Ok(pool) => {
-                info!("Database initialized successfully");
-                pool
-            }
-            Err(e) => {
-                error!("Failed to initialize database: {:?}", e);
-                panic!("Database initialization failed");
-            }
-        };
+    let db_url = env::var("DATABASE_URL").expect("Database url must be set in env !!");
+    let db_pool = match db::init_db(&db_url).await {
+        Ok(pool) => {
+            info!("Database initialized successfully");
+            pool
+        }
+        Err(e) => {
+            error!("Failed to initialize database: {:?}", e);
+            panic!("Database initialization failed");
+        }
+    };
 
     let app_state = AppState::new(db_pool).await;
 

@@ -11,6 +11,7 @@ pub struct PollUpdate {
 pub struct PollCreated {
     pub poll_id: Uuid,
     pub title: String,
+    #[allow(dead_code)]
     pub creator_id: Uuid,
 }
 

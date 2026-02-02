@@ -12,7 +12,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(db: DbPool) -> Self {
-        let rp_id = "localhost";
+        let rp_id = "polldance.vercel.app";
         let rp_origin = Url::parse("https://polldance.vercel.app").expect("Invalid URL");
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
         let builder = builder.rp_name("Axum Webauthn-rs");

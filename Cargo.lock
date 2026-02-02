@@ -1688,6 +1688,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "dotenv",
+ "dotenvy",
  "futures",
  "serde",
  "serde_json",

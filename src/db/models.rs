@@ -20,7 +20,7 @@ pub struct PollOption {
     pub option_text: String,
     pub votes: i64,
 }
-
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Vote {
     pub id: Uuid,

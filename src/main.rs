@@ -1,7 +1,7 @@
 use crate::auth::{finish_authentication, finish_register, start_authentication, start_register};
 use crate::polls::{close_poll, create_poll, get_poll, list_polls, vote_on_poll};
 use crate::sse::{all_polls_sse, create_sse_broadcaster, poll_updates_sse};
-use crate::startup::{AppState, DATABASE_URL};
+use crate::startup::AppState;
 use axum::Json;
 use axum::{
     Router,
@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use serde_json::json;
+use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -45,16 +46,19 @@ async fn main() {
     }
     tracing_subscriber::fmt::init();
 
-    let db_pool = match db::init_db(DATABASE_URL).await {
-        Ok(pool) => {
-            info!("Database initialized successfully");
-            pool
-        }
-        Err(e) => {
-            error!("Failed to initialize database: {:?}", e);
-            panic!("Database initialization failed");
-        }
-    };
+    let db_pool =
+        match db::init_db(&env::var("DATABASE_URL").expect("Database url must be set in env !!"))
+            .await
+        {
+            Ok(pool) => {
+                info!("Database initialized successfully");
+                pool
+            }
+            Err(e) => {
+                error!("Failed to initialize database: {:?}", e);
+                panic!("Database initialization failed");
+            }
+        };
 
     let app_state = AppState::new(db_pool).await;
 
@@ -77,13 +81,17 @@ async fn main() {
         .route("/polls/sse", get(all_polls_sse))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(30),
+            Duration::from_hours(24 * 30),
         ))
         .layer(Extension(app_state))
         .layer(Extension(sse_tx))
         .layer(
             CorsLayer::new()
-                .allow_origin(AllowOrigin::mirror_request())
+                .allow_origin(AllowOrigin::exact(
+                    "https://polldance.vercel.app"
+                        .parse()
+                        .expect("Url Expected (of frontend)"),
+                ))
                 .allow_credentials(true)
                 .allow_methods([
                     axum::http::Method::POST,

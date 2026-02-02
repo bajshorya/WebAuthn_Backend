@@ -99,13 +99,24 @@ async fn main() {
                     axum::http::Method::PUT,
                     axum::http::Method::DELETE,
                 ])
-                .allow_headers([CONTENT_TYPE, ACCEPT, axum::http::header::ORIGIN]),
+                .allow_headers([
+                    CONTENT_TYPE,
+                    ACCEPT,
+                    axum::http::header::ORIGIN,
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::COOKIE,
+                ])
+                .expose_headers([
+                    axum::http::header::SET_COOKIE,
+                    axum::http::header::CONTENT_TYPE,
+                ])
+                .max_age(Duration::from_secs(86400)),
         )
         .layer(
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
-                .with_same_site(SameSite::Lax)
-                .with_secure(std::env::var("RUST_ENV") == Ok("production".to_string()))
+                .with_same_site(SameSite::None)
+                .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
                 .with_http_only(true),
         );

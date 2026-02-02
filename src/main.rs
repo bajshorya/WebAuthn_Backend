@@ -70,6 +70,7 @@ async fn main() {
 
     let sse_tx = create_sse_broadcaster();
     let app = Router::new()
+        .route("/", get(async || "Welcome to PollDance API"))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
@@ -91,11 +92,9 @@ async fn main() {
         .layer(Extension(sse_tx))
         .layer(
             CorsLayer::new()
-                .allow_origin(AllowOrigin::list([
-                    "https://polldance.vercel.app".parse().unwrap(),
-                    "http://localhost:3000".parse().unwrap(),
-                    "http://127.0.0.1:3000".parse().unwrap(),
-                ]))
+                .allow_origin(AllowOrigin::list(["https://polldance.vercel.app"
+                    .parse()
+                    .unwrap()]))
                 .allow_credentials(true)
                 .allow_methods([
                     axum::http::Method::POST,
@@ -115,12 +114,13 @@ async fn main() {
                     axum::http::header::SET_COOKIE,
                     axum::http::header::CONTENT_TYPE,
                 ])
-                .max_age(Duration::from_secs(86400)),
+                .max_age(Duration::from_hours(24 * 30)),
         )
         .layer(
             SessionManagerLayer::new(session_store)
                 .with_name("webauthnrs")
                 .with_same_site(SameSite::None)
+                .with_domain(".onrender.com")
                 .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
                 .with_http_only(true)

@@ -22,6 +22,7 @@ use tower_http::timeout::TimeoutLayer;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
+use tower_sessions_sqlx_store::PostgresStore;
 use tracing::{error, info};
 
 mod auth;
@@ -59,11 +60,15 @@ async fn main() {
         }
     };
 
-    let app_state = AppState::new(db_pool).await;
+    let app_state = AppState::new(db_pool.clone()).await;
+    let session_store = PostgresStore::new(db_pool);
 
-    let session_store = MemoryStore::default();
+    session_store
+        .migrate()
+        .await
+        .expect("Failed to migrate session table");
+
     let sse_tx = create_sse_broadcaster();
-
     let app = Router::new()
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
@@ -118,7 +123,8 @@ async fn main() {
                 .with_same_site(SameSite::None)
                 .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
-                .with_http_only(true),
+                .with_http_only(true)
+                .with_path("/"),
         );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));

@@ -50,6 +50,8 @@ async fn main() {
     let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set in env");
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in env");
 
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+
     let db_pool = match db::init_db(&db_url).await {
         Ok(pool) => {
             info!("Database initialized successfully");
@@ -83,7 +85,13 @@ async fn main() {
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list([
-                    "https://polling-app-frontend-rho.vercel.app"
+                    "https://polling-app-frontend-rho.vercel.app/"
+                        .parse()
+                        .unwrap(),
+                    "https://polling-app-frontend-rho.vercel.app/"
+                        .parse()
+                        .unwrap(),
+                    "https://polling-app-frontend-rho.vercel.app/"
                         .parse()
                         .unwrap(),
                     "http://localhost:3000".parse().unwrap(),
@@ -113,8 +121,8 @@ async fn main() {
         .layer(Extension(app_state))
         .layer(Extension(sse_tx));
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
-    info!("listening on {addr}");
+    let addr = SocketAddr::from(([0, 0, 0, 0], port.parse().unwrap()));
+    info!("🚀 Server listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await

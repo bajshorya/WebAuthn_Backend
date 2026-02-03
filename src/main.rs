@@ -21,7 +21,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
-use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
+use tower_sessions::{Expiry, Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::PostgresStore;
 use tracing::{error, info};
 
@@ -84,12 +84,15 @@ async fn main() {
         .route("/polls/:poll_id/close", post(close_poll))
         .route("/polls/:poll_id/sse", get(poll_updates_sse))
         .route("/polls/sse", get(all_polls_sse))
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            Duration::from_hours(24 * 30),
-        ))
-        .layer(Extension(app_state))
-        .layer(Extension(sse_tx))
+        .layer(
+            SessionManagerLayer::new(session_store)
+                .with_name("webauthnrs")
+                .with_same_site(SameSite::None)
+                .with_secure(true)
+                .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
+                .with_http_only(true)
+                .with_path("/"),
+        )
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(["https://polldance.vercel.app"
@@ -116,15 +119,12 @@ async fn main() {
                 ])
                 .max_age(Duration::from_hours(24 * 30)),
         )
-        .layer(
-            SessionManagerLayer::new(session_store)
-                .with_name("webauthnrs")
-                .with_same_site(SameSite::None)
-                .with_secure(true)
-                .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
-                .with_http_only(true)
-                .with_path("/"),
-        );
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_hours(24 * 30),
+        ))
+        .layer(Extension(app_state))
+        .layer(Extension(sse_tx));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     info!("listening on {addr}");

@@ -16,58 +16,96 @@ pub enum WebauthnError {
     UserNotFound,
     #[error("User Has No Credentials")]
     UserHasNoCredentials,
-    #[error("Deserialising Session failed: {0}")]
-    InvalidSessionState(#[from] tower_sessions::session::Error),
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Invalid token")]
+    InvalidToken,
+    #[error("Token creation error")]
+    TokenCreationError,
+    #[error("User already exists")]
+    UserAlreadyExists,
 }
 
 #[derive(Error, Debug)]
 pub enum PollError {
     #[error("Unauthorized")]
     Unauthorized,
+    #[error("Invalid request")]
+    InvalidRequest,
     #[error("Poll not found")]
     PollNotFound,
     #[error("Poll option not found")]
     OptionNotFound,
-    #[error("User already voted on this poll")]
-    AlreadyVoted,
     #[error("Poll is closed")]
     PollClosed,
+    #[error("User already voted on this poll")]
+    AlreadyVoted,
     #[error("Database error: {0}")]
     DatabaseError(String),
-    #[error("Invalid request")]
-    InvalidRequest,
 }
 
 impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
-        let body = match self {
-            WebauthnError::CorruptSession => "Corrupt Session",
-            WebauthnError::UserNotFound => "User Not Found",
-            WebauthnError::Unknown => "Unknown Error",
-            WebauthnError::UserHasNoCredentials => "User Has No Credentials",
-            WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
+        let (status, error_message) = match &self {
+            WebauthnError::Unknown => (StatusCode::INTERNAL_SERVER_ERROR, "Unknown error"),
+            WebauthnError::CorruptSession => (StatusCode::BAD_REQUEST, "Corrupt session"),
+            WebauthnError::UserNotFound => (StatusCode::NOT_FOUND, "User not found"),
+            WebauthnError::UserHasNoCredentials => (
+                StatusCode::BAD_REQUEST,
+                "User has no registered credentials",
+            ),
+            WebauthnError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
+            WebauthnError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid token"),
+            WebauthnError::TokenCreationError => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create token")
+            }
+            WebauthnError::UserAlreadyExists => (StatusCode::CONFLICT, "User already exists"),
         };
 
-        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+        let body = Json(json!({
+            "error": error_message,
+            "details": self.to_string()
+        }));
+
+        (status, body).into_response()
     }
 }
 
 impl IntoResponse for PollError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self {
+        let (status, error_message) = match &self {
             PollError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
+            PollError::InvalidRequest => (StatusCode::BAD_REQUEST, "Invalid request"),
             PollError::PollNotFound => (StatusCode::NOT_FOUND, "Poll not found"),
             PollError::OptionNotFound => (StatusCode::NOT_FOUND, "Poll option not found"),
+            PollError::PollClosed => (StatusCode::BAD_REQUEST, "Poll is closed"),
             PollError::AlreadyVoted => (StatusCode::CONFLICT, "User already voted on this poll"),
-            PollError::PollClosed => (StatusCode::FORBIDDEN, "Poll is closed"),
-            PollError::DatabaseError(ref msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.as_str()),
-            PollError::InvalidRequest => (StatusCode::BAD_REQUEST, "Invalid request"),
+            PollError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.as_str()),
         };
 
         let body = Json(json!({
-            "error": error_message
+            "error": error_message,
+            "details": self.to_string()
         }));
 
         (status, body).into_response()
+    }
+}
+
+impl From<sqlx::Error> for PollError {
+    fn from(error: sqlx::Error) -> Self {
+        PollError::DatabaseError(error.to_string())
+    }
+}
+
+impl From<jsonwebtoken::errors::Error> for WebauthnError {
+    fn from(_: jsonwebtoken::errors::Error) -> Self {
+        WebauthnError::InvalidToken
+    }
+}
+
+impl From<serde_json::Error> for WebauthnError {
+    fn from(_: serde_json::Error) -> Self {
+        WebauthnError::Unknown
     }
 }

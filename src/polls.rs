@@ -9,8 +9,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tower_sessions::Session;
 use uuid::Uuid;
+
+// Import the BearerAuth extractor
+use crate::auth::BearerAuth;
+
 #[derive(Debug, Deserialize)]
 pub struct CreatePollRequest {
     pub title: String,
@@ -63,29 +66,13 @@ pub struct VoteResponse {
     pub message: String,
 }
 
-async fn require_auth(session: &Session) -> Result<Uuid, PollError> {
-    session
-        .get::<Uuid>("user_id")
-        .await
-        .map_err(|_| PollError::Unauthorized)?
-        .ok_or(PollError::Unauthorized)
-}
-
-async fn get_user_id_from_session(session: &Session) -> Result<Uuid, PollError> {
-    session
-        .get::<Uuid>("user_id")
-        .await
-        .map_err(|_| PollError::Unauthorized)?
-        .ok_or(PollError::Unauthorized)
-}
-
 pub async fn create_poll(
     Extension(app_state): Extension<AppState>,
     Extension(sse_tx): Extension<SseSender>,
-    session: Session,
+    auth: BearerAuth,
     Json(payload): Json<CreatePollRequest>,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = get_user_id_from_session(&session).await?;
+    let user_id = auth.0.sub;
 
     if payload.title.is_empty() || payload.options.is_empty() {
         return Err(PollError::InvalidRequest);
@@ -131,11 +118,12 @@ pub async fn create_poll(
 
     Ok((StatusCode::CREATED, Json(response)))
 }
+
 pub async fn list_polls(
     Extension(app_state): Extension<AppState>,
-    session: Session,
+    auth: BearerAuth,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = require_auth(&session).await?;
+    let user_id = auth.0.sub;
     let polls = db::get_all_polls(&app_state.db)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?;
@@ -177,10 +165,10 @@ pub async fn list_polls(
 
 pub async fn get_poll(
     Extension(app_state): Extension<AppState>,
-    session: Session,
+    auth: BearerAuth,
     Path(poll_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = require_auth(&session).await?;
+    let user_id = auth.0.sub;
     let poll = db::get_poll(&app_state.db, poll_id)
         .await
         .map_err(|e| PollError::DatabaseError(e.to_string()))?
@@ -221,11 +209,11 @@ pub async fn get_poll(
 pub async fn vote_on_poll(
     Extension(app_state): Extension<AppState>,
     Extension(sse_tx): Extension<SseSender>,
-    session: Session,
+    auth: BearerAuth,
     Path(poll_id): Path<Uuid>,
     Json(payload): Json<CastVoteRequest>,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = require_auth(&session).await?;
+    let user_id = auth.0.sub;
 
     let poll = db::get_poll(&app_state.db, poll_id)
         .await
@@ -275,13 +263,14 @@ pub async fn vote_on_poll(
         Err(e) => Err(PollError::DatabaseError(e.to_string())),
     }
 }
+
 pub async fn close_poll(
     Extension(app_state): Extension<AppState>,
     Extension(sse_tx): Extension<SseSender>,
-    session: Session,
+    auth: BearerAuth,
     Path(poll_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, PollError> {
-    let user_id = require_auth(&session).await?;
+    let user_id = auth.0.sub;
 
     let poll = db::get_poll(&app_state.db, poll_id)
         .await

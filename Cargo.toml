@@ -33,3 +33,4 @@ uuid = { version = "1.19.0", features = ["v4", "serde"] }
 webauthn-rs = { version = "0.5.4", features = ["danger-allow-state-serialisation"] }
 async-stream = "0.3"
 tokio-stream = "0.1"
+jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }  # Added rust_crypto feature

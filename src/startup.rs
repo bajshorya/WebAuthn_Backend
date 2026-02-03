@@ -8,17 +8,18 @@ use webauthn_rs::prelude::*;
 pub struct AppState {
     pub webauthn: Arc<Webauthn>,
     pub db: DbPool,
+    pub jwt_secret: String,
 }
 
 impl AppState {
-    pub async fn new(db: DbPool) -> Self {
-        let rp_id = "https://polling-app-frontend-rho.vercel.app";
-        let rp_origin =
-            Url::parse("https://polling-app-frontend-rho.vercel.app").expect("Invalid URL");
+    pub async fn new(db: DbPool, jwt_secret: String) -> Self {
+        let rp_id = "localhost";
+        let rp_origin = Url::parse("http://localhost:3000").expect("Invalid URL");
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
         let builder = builder.rp_name("Axum Webauthn-rs");
         let webauthn = Arc::new(builder.build().expect("Invalid configuration"));
 
+        // Database connection health check
         let db_clone = db.clone();
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(60));
@@ -35,6 +36,10 @@ impl AppState {
             }
         });
 
-        AppState { webauthn, db }
+        AppState {
+            webauthn,
+            db,
+            jwt_secret,
+        }
     }
 }

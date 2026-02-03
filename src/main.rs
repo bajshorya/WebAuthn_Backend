@@ -1,28 +1,25 @@
-use crate::auth::{finish_authentication, finish_register, start_authentication, start_register};
+use crate::auth::{
+    authenticate_user, finish_authentication, finish_register, register_user, start_authentication,
+    start_register,
+};
 use crate::polls::{close_poll, create_poll, get_poll, list_polls, vote_on_poll};
 use crate::sse::{all_polls_sse, create_sse_broadcaster, poll_updates_sse};
 use crate::startup::AppState;
-use axum::Json;
 use axum::{
     Router,
     extract::Extension,
     http::{
         StatusCode,
-        header::{ACCEPT, CONTENT_TYPE},
+        header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
     },
     response::IntoResponse,
     routing::{get, post},
 };
-use serde_json::json;
 use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
-use tower_sessions::cookie::SameSite;
-use tower_sessions::cookie::time::Duration as CookieDuration;
-use tower_sessions::{Expiry, Session, SessionManagerLayer};
-use tower_sessions_sqlx_store::PostgresStore;
 use tracing::{error, info};
 
 mod auth;
@@ -38,6 +35,7 @@ mod db {
     pub use connection::*;
     pub use repositories::*;
 }
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -48,7 +46,10 @@ async fn main() {
         }
     }
     tracing_subscriber::fmt::init();
-    let db_url = env::var("DATABASE_URL").expect("Database url must be set in env !!");
+
+    let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set in env");
+    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in env");
+
     let db_pool = match db::init_db(&db_url).await {
         Ok(pool) => {
             info!("Database initialized successfully");
@@ -60,22 +61,17 @@ async fn main() {
         }
     };
 
-    let app_state = AppState::new(db_pool.clone()).await;
-    let session_store = PostgresStore::new(db_pool);
-
-    session_store
-        .migrate()
-        .await
-        .expect("Failed to migrate session table");
-
+    let app_state = AppState::new(db_pool.clone(), jwt_secret).await;
     let sse_tx = create_sse_broadcaster();
+
     let app = Router::new()
         .route("/", get(async || "Welcome to PollingApp API"))
+        .route("/register", post(register_user))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
+        .route("/login", post(authenticate_user))
         .route("/login_start/:username", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
-        .route("/logout", post(logout))
         .route("/debug/db-stats", get(debug_db_stats))
         .route("/polls", post(create_poll))
         .route("/polls", get(list_polls))
@@ -85,20 +81,13 @@ async fn main() {
         .route("/polls/:poll_id/sse", get(poll_updates_sse))
         .route("/polls/sse", get(all_polls_sse))
         .layer(
-            SessionManagerLayer::new(session_store)
-                .with_name("webauthnrs")
-                .with_same_site(SameSite::None)
-                .with_secure(true)
-                .with_expiry(Expiry::OnInactivity(CookieDuration::days(7)))
-                .with_http_only(true)
-                .with_path("/"),
-        )
-        .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list([
                     "https://polling-app-frontend-rho.vercel.app"
                         .parse()
                         .unwrap(),
+                    "http://localhost:3000".parse().unwrap(),
+                    "http://localhost:5173".parse().unwrap(),
                 ]))
                 .allow_credentials(true)
                 .allow_methods([
@@ -111,14 +100,10 @@ async fn main() {
                 .allow_headers([
                     CONTENT_TYPE,
                     ACCEPT,
+                    AUTHORIZATION,
                     axum::http::header::ORIGIN,
-                    axum::http::header::AUTHORIZATION,
-                    axum::http::header::COOKIE,
                 ])
-                .expose_headers([
-                    axum::http::header::SET_COOKIE,
-                    axum::http::header::CONTENT_TYPE,
-                ])
+                .expose_headers([axum::http::header::CONTENT_TYPE, AUTHORIZATION])
                 .max_age(Duration::from_hours(24 * 30)),
         )
         .layer(TimeoutLayer::with_status_code(
@@ -148,12 +133,4 @@ async fn debug_db_stats(Extension(app_state): Extension<AppState>) -> impl IntoR
         Ok(stats) => (StatusCode::OK, stats),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Error: {}", e)),
     }
-}
-
-async fn logout(session: Session) -> impl IntoResponse {
-    session.clear().await;
-    Json(json!({
-        "success": true,
-        "message": "Logged out successfully"
-    }))
 }

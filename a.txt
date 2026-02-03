@@ -1,0 +1,2 @@
+
+{"access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI4OTk0N2Q5Yi1hZTEzLTRmOWUtOGMyYy02NzdmZmM3MzM0ZGIiLCJleHAiOjE3NzA3MjE3NTAsImlhdCI6MTc3MDExNjk1MCwidXNlcm5hbWUiOiJ0ZXN0dXNlcjEifQ.zZwZxxaMq3AdDpGBC03OimX7scmGXL7f7_3h353bwX4","token_type":"Bearer","expires_in":604800,"user_id":"89947d9b-ae13-4f9e-8c2c-677ffc7334db","username":"testuser1"}%     

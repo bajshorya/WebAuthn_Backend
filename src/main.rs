@@ -13,7 +13,7 @@ use axum::{
         header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
     },
     response::IntoResponse,
-    routing::{get, post},
+    routing::options,
 };
 use std::env;
 use std::net::SocketAddr;
@@ -65,54 +65,90 @@ async fn main() {
 
     let app_state = AppState::new(db_pool.clone(), jwt_secret).await;
     let sse_tx = create_sse_broadcaster();
-
     let app = Router::new()
-        .route("/", get(async || "Welcome to PollingApp API"))
-        .route("/register", post(register_user))
-        .route("/register_start/:username", post(start_register))
-        .route("/register_finish", post(finish_register))
-        .route("/login", post(authenticate_user))
-        .route("/login_start/:username", post(start_authentication))
-        .route("/login_finish", post(finish_authentication))
-        .route("/debug/db-stats", get(debug_db_stats))
-        .route("/polls", post(create_poll))
-        .route("/polls", get(list_polls))
-        .route("/polls/:poll_id", get(get_poll))
-        .route("/polls/:poll_id/vote", post(vote_on_poll))
-        .route("/polls/:poll_id/close", post(close_poll))
-        .route("/polls/:poll_id/sse", get(poll_updates_sse))
-        .route("/polls/sse", get(all_polls_sse))
+        .route(
+            "/register_start/:username",
+            options(|| async { (StatusCode::OK, "") }).post(start_register),
+        )
+        .route(
+            "/register_finish",
+            options(|| async { (StatusCode::OK, "") }).post(finish_register),
+        )
+        .route(
+            "/login_start/:username",
+            options(|| async { (StatusCode::OK, "") }).post(start_authentication),
+        )
+        .route(
+            "/login_finish",
+            options(|| async { (StatusCode::OK, "") }).post(finish_authentication),
+        )
+        .route(
+            "/register",
+            options(|| async { (StatusCode::OK, "") }).post(register_user),
+        )
+        .route(
+            "/login",
+            options(|| async { (StatusCode::OK, "") }).post(authenticate_user),
+        )
+        .route(
+            "/polls",
+            options(|| async { (StatusCode::OK, "") })
+                .post(create_poll)
+                .get(list_polls),
+        )
+        .route(
+            "/polls/:poll_id",
+            options(|| async { (StatusCode::OK, "") }).get(get_poll),
+        )
+        .route(
+            "/polls/:poll_id/vote",
+            options(|| async { (StatusCode::OK, "") }).post(vote_on_poll),
+        )
+        .route(
+            "/polls/:poll_id/close",
+            options(|| async { (StatusCode::OK, "") }).post(close_poll),
+        )
+        .route(
+            "/polls/:poll_id/sse",
+            options(|| async { (StatusCode::OK, "") }).get(poll_updates_sse),
+        )
+        .route(
+            "/polls/sse",
+            options(|| async { (StatusCode::OK, "") }).get(all_polls_sse),
+        )
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list([
-                    "https://polling-app-frontend-rho.vercel.app/"
+                    "https://polling-app-frontend-rho.vercel.app"
                         .parse()
                         .unwrap(),
-                    "https://polling-app-frontend-rho.vercel.app/"
-                        .parse()
-                        .unwrap(),
-                    "https://polling-app-frontend-rho.vercel.app/"
-                        .parse()
-                        .unwrap(),
+                    "https://*.vercel.app".parse().unwrap(),
                     "http://localhost:3000".parse().unwrap(),
                     "http://localhost:5173".parse().unwrap(),
                 ]))
                 .allow_credentials(true)
                 .allow_methods([
-                    axum::http::Method::POST,
                     axum::http::Method::GET,
-                    axum::http::Method::OPTIONS,
+                    axum::http::Method::POST,
                     axum::http::Method::PUT,
                     axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::HEAD,
                 ])
                 .allow_headers([
                     CONTENT_TYPE,
                     ACCEPT,
                     AUTHORIZATION,
                     axum::http::header::ORIGIN,
+                    axum::http::header::COOKIE,
                 ])
-                .expose_headers([axum::http::header::CONTENT_TYPE, AUTHORIZATION])
-                .max_age(Duration::from_hours(24 * 30)),
+                .expose_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    AUTHORIZATION,
+                    axum::http::header::SET_COOKIE,
+                ])
+                .max_age(Duration::from_secs(86400)),
         )
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,

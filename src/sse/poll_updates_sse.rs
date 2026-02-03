@@ -22,7 +22,7 @@ pub async fn poll_updates_sse(
             Ok(Some(poll)) => {
                 match db::get_poll_options(&app_state.db, poll_id).await {
                     Ok(options) => {
-                        let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                        let total_votes = options.iter().map(|o| o.votes).sum::<i32>();
                         yield Ok(Event::default()
                             .event("init")
                             .data(json!({
@@ -55,7 +55,7 @@ pub async fn poll_updates_sse(
                 SseEvent::VoteUpdate(update) if update.poll_id == poll_id => {
                     match db::get_poll_options(&app_state.db, poll_id).await {
                         Ok(options) => {
-                            let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                            let total_votes = options.iter().map(|o| o.votes).sum::<i32>();
                             yield Ok(Event::default()
                                 .event("vote_update")
                                 .data(json!({

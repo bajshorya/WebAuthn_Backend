@@ -26,7 +26,7 @@ pub async fn all_polls_sse(
                         let options_result = db::get_poll_options(&app_state.db, poll.id).await;
                         match options_result {
                             Ok(options) => {
-                                let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                                let total_votes = options.iter().map(|o| o.votes).sum::<i32>();
                                 polls_with_details.push(json!({
                                     "id": poll.id,
                                     "title": poll.title,
@@ -75,7 +75,7 @@ pub async fn all_polls_sse(
                             let options_result = db::get_poll_options(&app_state.db, poll_created.poll_id).await;
                             match options_result {
                                 Ok(options) => {
-                                    let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                                    let total_votes = options.iter().map(|o| o.votes).sum::<i32>();
                                     yield Ok(Event::default()
                                         .event("poll_created")
                                         .data(json!({
@@ -125,7 +125,7 @@ pub async fn all_polls_sse(
                         Ok(Some(poll)) => {
                             match db::get_poll_options(&app_state.db, update.poll_id).await {
                                 Ok(options) => {
-                                    let total_votes = options.iter().map(|o| o.votes).sum::<i64>();
+                                    let total_votes = options.iter().map(|o| o.votes).sum::<i32>();
                                     yield Ok(Event::default()
                                         .event("poll_updated")
                                         .data(json!({

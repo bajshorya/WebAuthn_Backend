@@ -155,7 +155,7 @@ pub async fn list_polls(
             .map(|opt| PollOptionWithVotesResponse {
                 id: opt.id,
                 text: opt.option_text,
-                votes: opt.votes,
+                votes: opt.votes as i64,
             })
             .collect();
 
@@ -199,7 +199,7 @@ pub async fn get_poll(
         .map(|opt| PollOptionWithVotesResponse {
             id: opt.id,
             text: opt.option_text,
-            votes: opt.votes,
+            votes: opt.votes as i64,
         })
         .collect();
 
@@ -256,7 +256,7 @@ pub async fn vote_on_poll(
                 let _ = sse_tx.send(crate::sse::SseEvent::VoteUpdate(crate::sse::PollUpdate {
                     poll_id,
                     option_id: payload.option_id,
-                    new_vote_count: updated_option.votes,
+                    new_vote_count: updated_option.votes as i64,
                 }));
 
                 println!(

@@ -70,7 +70,7 @@ async fn main() {
 
     let sse_tx = create_sse_broadcaster();
     let app = Router::new()
-        .route("/", get(async || "Welcome to PollDance API"))
+        .route("/", get(async || "Welcome to PollingApp API"))
         .route("/register_start/:username", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login_start/:username", post(start_authentication))
@@ -95,9 +95,11 @@ async fn main() {
         )
         .layer(
             CorsLayer::new()
-                .allow_origin(AllowOrigin::list(["https://polldance.vercel.app"
-                    .parse()
-                    .unwrap()]))
+                .allow_origin(AllowOrigin::list([
+                    "https://polling-app-frontend-rho.vercel.app"
+                        .parse()
+                        .unwrap(),
+                ]))
                 .allow_credentials(true)
                 .allow_methods([
                     axum::http::Method::POST,

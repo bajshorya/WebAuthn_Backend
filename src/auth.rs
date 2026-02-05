@@ -19,16 +19,14 @@ use tracing::{error, info};
 use uuid::Uuid;
 use webauthn_rs::prelude::*;
 
-// JWT Claims
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: Uuid,  // user_id
-    pub exp: usize, // expiration time
-    pub iat: usize, // issued at
+    pub sub: Uuid,
+    pub exp: usize,
+    pub iat: usize,
     pub username: String,
 }
 
-// Authentication request/response types
 #[derive(Debug, Deserialize)]
 pub struct AuthRequest {
     pub username: String,
@@ -43,7 +41,6 @@ pub struct AuthResponse {
     pub username: String,
 }
 
-// Bearer token extractor
 #[derive(Debug)]
 pub struct BearerAuth(pub Claims);
 
@@ -70,7 +67,7 @@ impl BearerAuth {
             return Err((StatusCode::UNAUTHORIZED, "Invalid token format".to_string()));
         }
 
-        let token = &auth_header[7..]; // Skip "Bearer "
+        let token = &auth_header[7..];
         let claims = decode_jwt(token, jwt_secret)
             .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
 
@@ -86,21 +83,18 @@ where
     type Rejection = (StatusCode, String);
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Get AppState from extensions
         let app_state = parts.extensions.get::<AppState>().ok_or((
             StatusCode::INTERNAL_SERVER_ERROR,
             "AppState not found".to_string(),
         ))?;
 
-        // Extract from headers
         Self::from_headers(&parts.headers, &app_state.jwt_secret).await
     }
 }
 
-// JWT helper functions
 pub fn create_jwt(user_id: Uuid, username: &str, secret: &str) -> Result<String, WebauthnError> {
     let now = Utc::now();
-    let expiration = now + ChronoDuration::days(7); // Token valid for 7 days
+    let expiration = now + ChronoDuration::days(7);
 
     let claims = Claims {
         sub: user_id,
@@ -131,7 +125,6 @@ pub fn decode_jwt(token: &str, secret: &str) -> Result<Claims, WebauthnError> {
     Ok(token_data.claims)
 }
 
-// Traditional username/password registration (optional - keeping for completeness)
 pub async fn register_user(
     Extension(app_state): Extension<AppState>,
     Json(payload): Json<AuthRequest>,
@@ -140,23 +133,20 @@ pub async fn register_user(
 
     let user_id = Uuid::new_v4();
 
-    // Check if user already exists
     if let Ok(Some(_)) = db::get_user_id(&app_state.db, &payload.username).await {
         return Err(WebauthnError::UserAlreadyExists);
     }
 
-    // Create user (without passkey)
     db::create_user(&app_state.db, user_id, &payload.username)
         .await
         .map_err(|_| WebauthnError::Unknown)?;
 
-    // Create JWT token
     let token = create_jwt(user_id, &payload.username, &app_state.jwt_secret)?;
 
     let response = AuthResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
-        expires_in: 7 * 24 * 60 * 60, // 7 days in seconds
+        expires_in: 7 * 24 * 60 * 60,
         user_id,
         username: payload.username,
     };
@@ -164,7 +154,6 @@ pub async fn register_user(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-// Traditional username/password authentication
 pub async fn authenticate_user(
     Extension(app_state): Extension<AppState>,
     Json(payload): Json<AuthRequest>,
@@ -176,13 +165,12 @@ pub async fn authenticate_user(
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::UserNotFound)?;
 
-    // Create JWT token
     let token = create_jwt(user_id, &payload.username, &app_state.jwt_secret)?;
 
     let response = AuthResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
-        expires_in: 7 * 24 * 60 * 60, // 7 days in seconds
+        expires_in: 7 * 24 * 60 * 60,
         user_id,
         username: payload.username,
     };
@@ -190,7 +178,6 @@ pub async fn authenticate_user(
     Ok((StatusCode::OK, Json(response)))
 }
 
-// WebAuthn registration endpoints
 pub async fn start_register(
     Extension(app_state): Extension<AppState>,
     Path(username): Path<String>,
@@ -222,7 +209,6 @@ pub async fn start_register(
 
     info!("WebAuthn registration started for: {}", username);
 
-    // In a real app, you'd want to store this server-side with an expiration
     let state_response = serde_json::json!({
         "public_key": ccr,
         "registration_state": serde_json::to_value(&reg_state).map_err(|_| WebauthnError::Unknown)?,
@@ -250,19 +236,16 @@ pub async fn finish_register(
         .finish_passkey_registration(&payload.credential, &reg_state)
     {
         Ok(sk) => {
-            // Create user if they don't exist
             if let Err(e) = db::create_user(&app_state.db, payload.user_id, &payload.username).await
             {
                 error!("Error creating user (may already exist): {:?}", e);
             }
 
-            // Add passkey
             if let Err(e) = db::add_passkey(&app_state.db, payload.user_id, &sk).await {
                 error!("Error adding passkey to database: {:?}", e);
                 return Err(WebauthnError::Unknown);
             }
 
-            // Create JWT token
             let token = create_jwt(payload.user_id, &payload.username, &app_state.jwt_secret)?;
 
             info!("WebAuthn registration successful for: {}", payload.username);
@@ -294,7 +277,6 @@ pub async fn finish_register(
     Ok(res)
 }
 
-// WebAuthn authentication endpoints
 pub async fn start_authentication(
     Extension(app_state): Extension<AppState>,
     Path(username): Path<String>,
@@ -369,7 +351,6 @@ pub async fn finish_authentication(
                 return Err(WebauthnError::Unknown);
             }
 
-            // Create JWT token
             let token = create_jwt(payload.user_id, &payload.username, &app_state.jwt_secret)?;
 
             info!(
@@ -404,7 +385,6 @@ pub async fn finish_authentication(
     Ok(res)
 }
 
-// Request types for WebAuthn flows
 #[derive(Debug, Deserialize)]
 pub struct FinishRegisterRequest {
     pub credential: RegisterPublicKeyCredential,

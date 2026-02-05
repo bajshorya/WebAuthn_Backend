@@ -2,7 +2,7 @@ use crate::auth::{
     authenticate_user, finish_authentication, finish_register, register_user, start_authentication,
     start_register,
 };
-use crate::polls::{close_poll, create_poll, get_poll, list_polls, vote_on_poll};
+use crate::polls::{close_poll, create_poll, get_poll, list_polls, restart_poll, vote_on_poll};
 use crate::sse::{all_polls_sse, create_sse_broadcaster, poll_updates_sse};
 use crate::startup::AppState;
 use axum::{
@@ -107,6 +107,10 @@ async fn main() {
         .route(
             "/polls/:poll_id/close",
             options(|| async { (StatusCode::OK, "") }).post(close_poll),
+        )
+        .route(
+            "/polls/:poll_id/restart",
+            options(|| async { (StatusCode::OK, "") }).post(restart_poll),
         )
         .route(
             "/polls/:poll_id/sse",

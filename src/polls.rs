@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-// Import the BearerAuth extractor
 use crate::auth::BearerAuth;
 
 #[derive(Debug, Deserialize)]
@@ -292,6 +291,42 @@ pub async fn close_poll(
         Json(json!({
             "success": true,
             "message": "Poll closed successfully"
+        })),
+    ))
+}
+
+pub async fn restart_poll(
+    Extension(app_state): Extension<AppState>,
+    Extension(sse_tx): Extension<SseSender>,
+    auth: BearerAuth,
+    Path(poll_id): Path<Uuid>,
+) -> Result<impl IntoResponse, PollError> {
+    let user_id = auth.0.sub;
+
+    let poll = db::get_poll(&app_state.db, poll_id)
+        .await
+        .map_err(|e| PollError::DatabaseError(e.to_string()))?
+        .ok_or(PollError::PollNotFound)?;
+
+    if poll.creator_id != user_id {
+        return Err(PollError::Unauthorized);
+    }
+
+    db::restart_poll(&app_state.db, poll_id)
+        .await
+        .map_err(|e| PollError::DatabaseError(e.to_string()))?;
+
+    let _ = sse_tx.send(SseEvent::PollCreated(crate::sse::PollCreated {
+        poll_id,
+        title: poll.title,
+        creator_id: poll.creator_id,
+    }));
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "message": "Poll restarted successfully"
         })),
     ))
 }

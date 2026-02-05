@@ -88,3 +88,12 @@ pub async fn close_poll(pool: &DbPool, poll_id: Uuid) -> Result<(), Error> {
 
     Ok(())
 }
+
+pub async fn restart_poll(pool: &DbPool, poll_id: Uuid) -> Result<(), Error> {
+    sqlx::query("UPDATE polls SET closed = FALSE WHERE id = $1")
+        .bind(poll_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
